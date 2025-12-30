@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Télécharger Audiveris (Linux = .deb)
-ARG AUDIVERIS_VERSION=5.9.0
+ARG AUDIVERIS_VERSION=5.8.0
 # Tu peux mettre ubuntu24.04 si tu veux
 ARG AUDIVERIS_LINUX_FLAVOR=ubuntu22.04
 
