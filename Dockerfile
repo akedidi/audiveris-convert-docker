@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Audiveris (version + flavor qui existent)
-ARG AUDIVERIS_VERSION=5.7.0
+ARG AUDIVERIS_VERSION=5.6.0
 ARG AUDIVERIS_LINUX_FLAVOR=ubuntu22.04
 
 WORKDIR /tmp
