@@ -1,7 +1,6 @@
 FROM python:3.11-slim
 
-# Java runtime + outils (Fix A: Java 21)
-# + libs utiles pour Java/AWT headless + OCR (optionnel mais conseillé)
+# Java runtime (Fix A: Java 21) + outils + libs headless utiles
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-21-jre-headless \
     curl ca-certificates \
@@ -10,9 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
 
-# Télécharger Audiveris (Linux = .deb)
-ARG AUDIVERIS_VERSION=5.8.0
-# Tu peux mettre ubuntu24.04 si tu veux
+# Audiveris (version + flavor qui existent)
+ARG AUDIVERIS_VERSION=5.7.0
 ARG AUDIVERIS_LINUX_FLAVOR=ubuntu22.04
 
 WORKDIR /tmp
