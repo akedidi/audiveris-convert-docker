@@ -1,36 +1,65 @@
 FROM python:3.11-slim
 
-# Outils + dépendances runtime (headless) + OCR optionnel
+# Outils + dépendances runtime + bash (pour le wrapper)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates unzip \
+    curl ca-certificates unzip bash \
     fontconfig libfreetype6 \
     libx11-6 libxext6 libxi6 libxrender1 libxtst6 \
     tesseract-ocr tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
 
-# Choisis une release + flavor qui existent (ubuntu22.04 ou ubuntu24.04)
+# Choisis une release + flavor qui existent
 ARG AUDIVERIS_VERSION=5.7.0
 ARG AUDIVERIS_LINUX_FLAVOR=ubuntu22.04
 
 WORKDIR /tmp
 
-# Télécharge le .deb, extrait dans /opt/audiveris, puis crée:
-# - /opt/audiveris/audiveris.jar (lien stable)
-# - /opt/audiveris/java          (lien vers le java inclus dans l’installer)
+# 1) Télécharge .deb
+# 2) Extrait dans /opt/audiveris
+# 3) Crée un lien vers le java inclus (bundled)
+# 4) Crée un wrapper /opt/audiveris/run-audiveris.sh :
+#    - essaie le launcher officiel s’il existe
+#    - sinon construit un CLASSPATH avec tous les jars et lance la main class Audiveris
 RUN curl -fL -o audiveris.deb \
     https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-${AUDIVERIS_LINUX_FLAVOR}-x86_64.deb \
  && mkdir -p /opt/audiveris \
  && dpkg-deb -x audiveris.deb /opt/audiveris \
  && rm audiveris.deb \
- && JAR_PATH="$(find /opt/audiveris -type f -name 'audiveris*.jar' | head -n 1)" \
- && echo "Audiveris jar: $JAR_PATH" \
- && ln -sf "$JAR_PATH" /opt/audiveris/audiveris.jar \
  && JAVA_PATH="$(find /opt/audiveris -type f -path '*/bin/java' | head -n 1)" \
  && echo "Bundled java: $JAVA_PATH" \
- && ln -sf "$JAVA_PATH" /opt/audiveris/java
+ && ln -sf "$JAVA_PATH" /opt/audiveris/java \
+ && cat > /opt/audiveris/run-audiveris.sh <<'SH' \
+#!/usr/bin/env bash
+set -euo pipefail
 
-ENV AUDIVERIS_JAR=/opt/audiveris/audiveris.jar
-ENV AUDIVERIS_JAVA=/opt/audiveris/java
+JAVA="/opt/audiveris/java"
+
+# 1) Si un launcher officiel existe, on l’utilise
+LAUNCHER="$(find /opt/audiveris -type f \( -path '*/usr/bin/audiveris' -o -path '*/usr/bin/Audiveris' -o -name 'audiveris' -o -name 'Audiveris' \) 2>/dev/null | head -n 1 || true)"
+if [[ -n "${LAUNCHER}" ]]; then
+  chmod +x "${LAUNCHER}" || true
+  # forcer le Java packagé
+  export JAVA_HOME="$(cd "$(dirname "$JAVA")/.." && pwd)"
+  export PATH="$(dirname "$JAVA"):${PATH}"
+  exec "${LAUNCHER}" "$@"
+fi
+
+# 2) Fallback : on reconstruit un classpath avec tous les jars
+CP="$(find /opt/audiveris -type f -name '*.jar' 2>/dev/null | paste -sd ':' -)"
+if [[ -z "${CP}" ]]; then
+  echo "ERROR: No JARs found under /opt/audiveris" >&2
+  exit 2
+fi
+
+export JAVA_HOME="$(cd "$(dirname "$JAVA")/.." && pwd)"
+export PATH="$(dirname "$JAVA"):${PATH}"
+
+# Lance la main class
+exec "${JAVA}" -cp "${CP}" Audiveris "$@"
+SH \
+ && chmod +x /opt/audiveris/run-audiveris.sh
+
+ENV AUDIVERIS_CMD=/opt/audiveris/run-audiveris.sh
 
 WORKDIR /app
 COPY requirements.txt .
