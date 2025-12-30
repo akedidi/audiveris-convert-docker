@@ -6,8 +6,7 @@ import tempfile
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 
-JAVA = os.getenv("AUDIVERIS_JAVA", "java")
-JAR  = os.getenv("AUDIVERIS_JAR", "/opt/audiveris/audiveris.jar")
+AUDIVERIS_CMD = os.getenv("AUDIVERIS_CMD", "/opt/audiveris/run-audiveris.sh")
 
 app = FastAPI()
 
@@ -23,11 +22,7 @@ async def convert(file: UploadFile = File(...)):
     if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"]:
         return JSONResponse(
             status_code=400,
-            content={
-                "ok": False,
-                "request_id": request_id,
-                "message": "Unsupported format. Use pdf/png/jpg/tiff."
-            }
+            content={"ok": False, "request_id": request_id, "message": "Formats: pdf/png/jpg/tiff"}
         )
 
     with tempfile.TemporaryDirectory() as work:
@@ -35,27 +30,30 @@ async def convert(file: UploadFile = File(...)):
         out_dir = os.path.join(work, "out")
         os.makedirs(out_dir, exist_ok=True)
 
-        # Save upload
         with open(in_path, "wb") as f:
             f.write(await file.read())
 
         print(f"[{request_id}] Starting Audiveris on {file.filename} (saved to {in_path})")
+
+        # Appel du wrapper (launcher-first + fallback classpath)
         cmd = [
-            JAVA,
-            # limite mémoire (utile sur free tiers)
-            "-Xms64m", "-Xmx420m",
-            "-jar", JAR,
+            AUDIVERIS_CMD,
             "-batch",
             "-export",
             "-output", out_dir,
             in_path
         ]
 
+        # Limite mémoire (Render free)
+        env = os.environ.copy()
+        env.setdefault("JAVA_TOOL_OPTIONS", "-Xms64m -Xmx420m")
+
         proc = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            env=env,
         )
 
         print(f"[{request_id}] Audiveris finished rc={proc.returncode}")
@@ -72,11 +70,10 @@ async def convert(file: UploadFile = File(...)):
                     "request_id": request_id,
                     "returncode": proc.returncode,
                     "message": "Audiveris failed",
-                    "log_tail": tail
-                }
+                    "log_tail": tail,
+                },
             )
 
-        # Cherche les outputs (mxl/musicxml/xml)
         candidates = (
             glob.glob(out_dir + "/**/*.mxl", recursive=True)
             + glob.glob(out_dir + "/**/*.musicxml", recursive=True)
@@ -93,15 +90,11 @@ async def convert(file: UploadFile = File(...)):
                     "request_id": request_id,
                     "returncode": proc.returncode,
                     "message": "No MusicXML/MXL generated",
-                    "log_tail": tail
-                }
+                    "log_tail": tail,
+                },
             )
 
         result_path = candidates[0]
         print(f"[{request_id}] Success output: {result_path}")
 
-        # Renvoie le fichier généré
-        return FileResponse(
-            result_path,
-            filename=os.path.basename(result_path)
-        )
+        return FileResponse(result_path, filename=os.path.basename(result_path))
